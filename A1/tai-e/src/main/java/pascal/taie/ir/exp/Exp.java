@@ -39,9 +39,7 @@ public interface Exp {
     /**
      * @return a list of expressions which are used by (contained in) this Exp.
      */
-    default List<RValue> getUses() {
-        return List.of();
-    }
+    default List<RValue> getUses() { return List.of(); }
 
     <T> T accept(ExpVisitor<T> visitor);
 }

@@ -1,6 +1,26 @@
+# IntelliJ IDEA / VS Code
 .idea/
+.vscode/
+*.iml
+
+# Gradle
 .gradle/
 build/
+
+# Java compiler and JVM crash artifacts
+*.class
+hs_err_pid*
+replay_pid*
+
+# Tai-e and analysis outputs
 out/
 output/
 sootOutput/
+
+# Logs and local OS metadata
+*.log
+.DS_Store
+Thumbs.db
+
+# Local Codex project instructions
+/AGENTS.md
