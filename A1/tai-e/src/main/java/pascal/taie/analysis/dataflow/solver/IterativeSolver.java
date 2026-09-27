@@ -59,7 +59,7 @@ class IterativeSolver<Node, Fact> extends Solver<Node, Fact> {
                             result.getInFact(succ),
                             result.getOutFact(node));
                 }
-                if (!cfg.isExit(node)) {
+                if (!cfg.isExit(node) && !cfg.isEntry(node)) {
                     changed |= analysis.transferNode(
                             node,
                             result.getInFact(node),

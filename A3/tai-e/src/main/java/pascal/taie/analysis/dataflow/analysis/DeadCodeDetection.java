@@ -33,21 +33,15 @@ import pascal.taie.analysis.graph.cfg.CFGBuilder;
 import pascal.taie.analysis.graph.cfg.Edge;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
-import pascal.taie.ir.exp.ArithmeticExp;
-import pascal.taie.ir.exp.ArrayAccess;
-import pascal.taie.ir.exp.CastExp;
-import pascal.taie.ir.exp.FieldAccess;
-import pascal.taie.ir.exp.NewExp;
-import pascal.taie.ir.exp.RValue;
-import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.exp.*;
 import pascal.taie.ir.stmt.AssignStmt;
 import pascal.taie.ir.stmt.If;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.ir.stmt.SwitchStmt;
+import pascal.taie.util.collection.Pair;
 
-import java.util.Comparator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DeadCodeDetection extends MethodAnalysis {
 
@@ -71,6 +65,110 @@ public class DeadCodeDetection extends MethodAnalysis {
         Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
         // TODO - finish me
         // Your task is to recognize dead code in ir and add it to deadCode
+        Set<Stmt> reachable = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
+        Deque<Stmt> queue = new ArrayDeque<>();
+
+        Stmt entry = cfg.getEntry();
+        reachable.add(entry);
+        queue.addLast(entry);
+
+        while (!queue.isEmpty()) {
+            Stmt stmt = queue.removeFirst();
+            if (stmt instanceof AssignStmt<?,?>) {
+                SetFact<Var> outFact = liveVars.getOutFact(stmt);
+                LValue lValue = ((AssignStmt<?, ?>) stmt).getLValue();
+                // no use and has no side effect
+                if (lValue instanceof Var) {
+                    if (!outFact.contains((Var) lValue) && hasNoSideEffect(((AssignStmt<?, ?>) stmt).getRValue())) {
+                        deadCode.add(stmt);
+                    }
+                }
+            }
+            if (stmt instanceof If) {
+                ConditionExp condition = ((If) stmt).getCondition();
+                Value evaluate = ConstantPropagation.evaluate(condition, constants.getInFact(stmt));
+                if (evaluate.isConstant()) {
+                    if (evaluate.getConstant() == 1) {
+                        cfg.getOutEdgesOf(stmt).forEach(edge -> {
+                            if (edge.getKind() == Edge.Kind.IF_TRUE) {
+                                if (!reachable.contains(edge.getTarget())) {
+                                    queue.addLast(edge.getTarget());
+                                }
+                                reachable.add(edge.getTarget());
+                            }
+                        });
+                    } else {
+                        cfg.getOutEdgesOf(stmt).forEach(edge -> {
+                            if (edge.getKind() == Edge.Kind.IF_FALSE) {
+                                if (!reachable.contains(edge.getTarget())) {
+                                    queue.addLast(edge.getTarget());
+                                }
+                                reachable.add(edge.getTarget());
+                            }
+                        });
+                    }
+                } else {
+                    cfg.getSuccsOf(stmt).forEach(edge -> {
+                        if (!reachable.contains(edge)) {
+                            queue.addLast(edge);
+                        }
+                        reachable.add(edge);
+                    });
+                }
+            } else if (stmt instanceof SwitchStmt) {
+                Var var = ((SwitchStmt) stmt).getVar();
+                List<Pair<Integer, Stmt>> caseTargets = ((SwitchStmt) stmt).getCaseTargets();
+                Stmt defaultTarget = ((SwitchStmt) stmt).getDefaultTarget();
+                CPFact result = constants.getInFact(stmt);
+                Value value = result.get(var);
+                if (value.isConstant()) {
+                    int constant = value.getConstant();
+                    AtomicBoolean f = new AtomicBoolean(false);
+                    caseTargets.forEach(pair -> {
+                       if (pair.first() == constant) {
+                           if (!reachable.contains(pair.second())) {
+                               queue.addLast(pair.second());
+                           }
+                           reachable.add(pair.second());
+                           f.set(true);
+                       }
+                    });
+                    if (!f.get()) {
+                        if (!reachable.contains(defaultTarget)) {
+                            queue.addLast(defaultTarget);
+                        }
+                        reachable.add(defaultTarget);
+                    }
+                } else {
+                    caseTargets.forEach(pair -> {
+                        if (!reachable.contains(pair.second())) {
+                            queue.addLast(pair.second());
+                        }
+                        reachable.add(pair.second());
+                    });
+                    if (!reachable.contains(defaultTarget)) {
+                        queue.addLast(defaultTarget);
+                    }
+                    reachable.add(defaultTarget);
+                }
+            } else {
+                cfg.getSuccsOf(stmt).forEach(edge -> {
+                    if (!reachable.contains(edge)) {
+                        queue.addLast(edge);
+                    }
+                });
+                reachable.addAll(cfg.getSuccsOf(stmt));
+            }
+        }
+
+        cfg.getNodes().forEach(node -> {
+           if (node != cfg.getEntry() && node != cfg.getExit()) {
+               if (!reachable.contains(node)) {
+                   deadCode.add(node);
+               }
+           }
+        });
+
         return deadCode;
     }
 
